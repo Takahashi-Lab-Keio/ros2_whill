@@ -164,8 +164,8 @@ public:
     // parameter setting
     declare_parameter("wheel_radius", 0.135);
     wheel_radius_ = get_parameter("wheel_radius").as_double();
-    declare_parameter("serial_port", "/dev/ttyUSB0");
-    serial_port_ = get_parameter("serial_port").as_string();
+    declare_parameter("serialport", "/dev/ttyUSB0");
+    serial_port_ = get_parameter("serialport").as_string();
     declare_parameter("send_interval", 10);
     send_interval_ = get_parameter("send_interval").as_int();
     declare_parameter("enable_cmd_vel_control", false);
