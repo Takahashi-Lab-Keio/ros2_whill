@@ -3,7 +3,7 @@ project(whill_description)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY urdf
+install(DIRECTORY urdf launch
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
