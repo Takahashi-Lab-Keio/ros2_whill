@@ -67,7 +67,11 @@ long double Odometry::confineRadian(long double rad){
 
 void Odometry::update(sensor_msgs::msg::JointState jointState, double dt)
 {
-    if(dt == 0)return;
+    if(dt == 0){
+        // print
+        // RCLCPP_WARN(rclcpp::get_logger("odom"), "dt is zero");
+        return;
+    }
 
     double angle_vel_r = jointState.velocity[1];
     double angle_vel_l = -jointState.velocity[0];
@@ -88,6 +92,9 @@ void Odometry::update(sensor_msgs::msg::JointState jointState, double dt)
 
     double theta = pose.theta + delta_theta * dt;
     pose.theta = confineRadian(theta);
+
+    // print pose
+    // RCLCPP_INFO(rclcpp::get_logger("odom"), "x: %.4f, y: %.4f, theta: %.4f", (double)pose.x, (double)pose.y, (double)pose.theta);
 
     return;
 }

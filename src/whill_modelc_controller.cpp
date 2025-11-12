@@ -32,6 +32,7 @@ Thus, it is no longer the recommended style for ROS 2.
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joy.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 
 #include "whill_modelc/com_whill.h"
 #include "ros2_whill_interfaces/srv/set_speed_profile.hpp"
@@ -186,6 +187,31 @@ void whillSetJoyMsgCallback(const sensor_msgs::msg::Joy::SharedPtr joy)
     sendJoystick(whill_fd, joy_front, joy_side);
 }
 
+//Control by cmd_vel
+
+void whillSetCmdVelMsgCallback(const geometry_msgs::msg::Twist::SharedPtr cmd_vel)
+{
+    double linear  = cmd_vel->linear.x;   // m/s
+    double angular = cmd_vel->angular.z;  // rad/s
+
+    int16_t x = 0, y = 0; // Unit: 0.004km/h
+
+    // Linear
+    y = (linear * 3.6f) / 0.004f;
+
+    // angular
+    const float tread_width = 0.248; // [m]
+    float v = tread_width * angular;  // V=rω [m/s]
+    x = -v * 3.6f / 0.004f * 2.0f; // [m/s] to [km/h]→ 0.004km/h unit, Double for differencial
+
+    uint8_t y1 = (uint8_t)((y >> 8) & 0xff);
+    uint8_t y0 = (uint8_t)((y >> 0) & 0xff);
+    uint8_t x1 = (uint8_t)((x >> 8) & 0xff);
+    uint8_t x0 = (uint8_t)((x >> 0) & 0xff);
+    
+    sendVelocity(whill_fd, y1, y0, x1, x0);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -208,8 +234,13 @@ int main(int argc, char **argv)
     // Subscribers
     auto whill_setjoy_sub = node->create_subscription<sensor_msgs::msg::Joy>(
         "/whill/controller/joy",
-        1,
+        100,
         whillSetJoyMsgCallback);
+
+    auto whill_setcmd_sub = node->create_subscription<geometry_msgs::msg::Twist>(
+        "/whill/controller/cmd_vel",
+        100,
+        whillSetCmdVelMsgCallback);
 
     initializeComWHILL(&whill_fd, serialport);
     rclcpp::spin(node);

@@ -148,16 +148,16 @@ int main(int argc, char **argv)
 	rclcpp::init(argc, argv);
 	node = rclcpp::Node::make_shared("whill_modelc_publisher");
 
-	auto whill_modelc_pub         = node->create_publisher<ros2_whill_interfaces::msg::WhillModelC>("/whill/modelc_state", 1);
-	auto whill_modelc_joy         = node->create_publisher<sensor_msgs::msg::Joy>("/whill/states/joy", 1);
-	auto whill_modelc_joint_state = node->create_publisher<sensor_msgs::msg::JointState>("/whill/states/joint_state", 1);
-	auto whill_modelc_imu         = node->create_publisher<sensor_msgs::msg::Imu>("/whill/states/imu", 1);
-	auto whill_modelc_battery     = node->create_publisher<sensor_msgs::msg::BatteryState>("/whill/states/batttery_state", 1);
-	auto whill_modelc_odom        = node->create_publisher<nav_msgs::msg::Odometry>("/whill/odom", 1);
+	auto whill_modelc_pub         = node->create_publisher<ros2_whill_interfaces::msg::WhillModelC>("/whill/modelc_state", 100);
+	auto whill_modelc_joy         = node->create_publisher<sensor_msgs::msg::Joy>("/whill/states/joy", 100);
+	auto whill_modelc_joint_state = node->create_publisher<sensor_msgs::msg::JointState>("/whill/states/joint_state", 100);
+	auto whill_modelc_imu         = node->create_publisher<sensor_msgs::msg::Imu>("/whill/states/imu", 100);
+	auto whill_modelc_battery     = node->create_publisher<sensor_msgs::msg::BatteryState>("/whill/states/batttery_state", 100);
+	auto whill_modelc_odom        = node->create_publisher<nav_msgs::msg::Odometry>("/whill/odom", 100);
 
 	auto clear_odom_srv           = node->create_service<std_srvs::srv::Empty>("/whill/odom/clear", clearOdom);
 	
-	auto whill_speed_profile      = node->create_publisher<ros2_whill_interfaces::msg::WhillSpeedProfile>("/whill/speed_profile", 1);
+	auto whill_speed_profile      = node->create_publisher<ros2_whill_interfaces::msg::WhillSpeedProfile>("/whill/speed_profile", 100);
 
 	tf2_ros::TransformBroadcaster odom_broadcaster_(node);
 
@@ -360,23 +360,33 @@ int main(int argc, char **argv)
 					jointState->position.resize(2);
 					jointState->velocity.resize(2);
 
+					// data acquisition
 					jointState->name[0]     = "leftWheel";
 					jointState->position[0] = msg->left_motor_angle;  //Rad
-
-					static double past[2] = {0.0f,0.0f};
-					
-					if(time_diff_ms != 0)jointState->velocity[0] = calc_rad_diff(past[0],jointState->position[0]) / (double(time_diff_ms) / 1000.0f);
-					else jointState->velocity[0] = 0;
-
-					past[0] = jointState->position[0];
 
 					jointState->name[1]     = "rightWheel";
 					jointState->position[1] = msg->right_motor_angle;  //Rad
 
-					if(time_diff_ms != 0)jointState->velocity[1] = calc_rad_diff(past[1],jointState->position[1]) / (double(time_diff_ms) / 1000.0f);
-					else jointState->velocity[0] = 0;
-					past[1] = jointState->position[1];
+					static double past[2] = {jointState->position[0], jointState->position[1]};
+					
+					if(time_diff_ms != 0) {
+						jointState->velocity[0] = calc_rad_diff(past[0],jointState->position[0]) / (double(time_diff_ms) / 1000.0f);
+					} else {
+						jointState->velocity[0] = 0;
+					}
 
+					// print past[0] and position[0] for debug
+					// RCLCPP_INFO(node->get_logger(), "past[0]: %.4f, position[0]: %.4f", past[0], jointState->position[0]);
+					past[0] = jointState->position[0];
+
+					if(time_diff_ms != 0) {
+						jointState->velocity[1] = calc_rad_diff(past[1],jointState->position[1]) / (double(time_diff_ms) / 1000.0f);
+					} else {
+						jointState->velocity[1] = 0;
+					}
+					// RCLCPP_INFO(node->get_logger(), "past[1]: %.4f, position[1]: %.4f", past[1], jointState->position[1]);
+
+					past[1] = jointState->position[1];
 
 					odom.update(*jointState, time_diff_ms/1000.0f);
 					

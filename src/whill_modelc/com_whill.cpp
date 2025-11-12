@@ -54,6 +54,9 @@ enum{
      //SET_SPEED_DOWN, 		// removed on Model C
      SET_SPEED_PROFILE, 	// added on Model C
      SET_BATTERY_VOLTAGE_OUT, 	// added on Model C
+     SET_BATTERY_SAVING, 	// added on Model CR2
+     NONE, 	               // None
+     SET_VELOCITY, 	          // added on Model C
 };
 
 #define USER_CTRL_DISABLE (0)
@@ -292,4 +295,21 @@ int sendSetBatteryOut(int fd, char battery_out)
 
      return sendWHILLCmd(fd, cmd, num_cmd);
 }
+
+// added on Model C
+int sendVelocity(int fd, uint8_t y1, uint8_t y0, uint8_t x1, uint8_t x0)
+{
+     const int num_cmd = 6;
+     char cmd[num_cmd];
+
+     cmd[0] = SET_VELOCITY;
+     cmd[1] = USER_CTRL_DISABLE;
+     cmd[2] = y1;
+     cmd[3] = y0;
+     cmd[4] = x1;
+     cmd[5] = x0;
+
+     return sendWHILLCmd(fd, cmd, num_cmd);
+}
+
 
