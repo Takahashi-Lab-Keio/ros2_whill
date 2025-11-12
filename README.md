@@ -7,6 +7,9 @@ ROS2 package for WHILL Model CR
 
 ### Subscribed Topics
 
+#### /whill/controller/cmd_vel [(geometry_msgs/Twist)](http://docs.ros.org/api/geometry_msgs/html/msg/Twist.html)
+- cmd_vel input. You can controll WHILL via this topic.
+
 #### /whill/controller/joy [(sensor_msgs/Joy)](http://docs.ros.org/api/sensor_msgs/html/msg/Joy.html)
 - Virtual WHILL joystick input. You can controll WHILL via this topic.
 
@@ -27,9 +30,9 @@ ROS2 package for WHILL Model CR
 
 
 ## Requirements
-- Ubuntu 18.04 (Windows & Mac OS support is currently under development)
-- ROS2 Crystal
-- [ros2_whill_interfaces](https://github.com/WHILL/ros2_whill_interfaces)
+- Ubuntu 24.04
+- ROS2 Jazzy
+- [ros2_whill_interfaces](https://github.com/whill-labs/ros2_whill_interfaces/tree/crystal-devel)
 
 ## Build
 In your shell:
