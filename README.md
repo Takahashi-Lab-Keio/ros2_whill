@@ -28,6 +28,9 @@ ROS2 package for WHILL Model CR
 #### /whill/states/battery_state [(sensor_msgs/BatteryState)](http://docs.ros.org/api/sensor_msgs/html/msg/BatteryState.html)
 - Battery information
 
+#### /whill/odom [(nav_msgs/Odometry)](http://docs.ros.org/api/nav_msgs/html/msg/Odometry.html)
+- Odometry data
+
 
 ## Requirements
 - Ubuntu 24.04
