@@ -219,8 +219,7 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
     node = rclcpp::Node::make_shared("whill_modelc_controller");
     
-    std::string serialport = "/dev/ttyUSB0";
-    node->get_parameter("serialport", serialport);
+    std::string serialport = node->declare_parameter<std::string>("serialport", "/dev/ttyUSB0");
     RCLCPP_INFO(node->get_logger(), "=========================");
     RCLCPP_INFO(node->get_logger(), "WHILL CR Controller:");
     RCLCPP_INFO(node->get_logger(), "    serialport: %s", serialport.c_str());
@@ -243,6 +242,12 @@ int main(int argc, char **argv)
         whillSetCmdVelMsgCallback);
 
     initializeComWHILL(&whill_fd, serialport);
+    if (whill_fd < 0) {
+        RCLCPP_ERROR(node->get_logger(), "Failed to open WHILL serial port: %s", serialport.c_str());
+        rclcpp::shutdown();
+        node = nullptr;
+        return -1;
+    }
     rclcpp::spin(node);
 
     closeComWHILL(whill_fd);
@@ -251,4 +256,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

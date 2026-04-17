@@ -152,7 +152,7 @@ int main(int argc, char **argv)
 	auto whill_modelc_joy         = node->create_publisher<sensor_msgs::msg::Joy>("/whill/states/joy", 100);
 	auto whill_modelc_joint_state = node->create_publisher<sensor_msgs::msg::JointState>("/whill/states/joint_state", 100);
 	auto whill_modelc_imu         = node->create_publisher<sensor_msgs::msg::Imu>("/whill/states/imu", 100);
-	auto whill_modelc_battery     = node->create_publisher<sensor_msgs::msg::BatteryState>("/whill/states/batttery_state", 100);
+	auto whill_modelc_battery     = node->create_publisher<sensor_msgs::msg::BatteryState>("/whill/states/battery_state", 100);
 	auto whill_modelc_odom        = node->create_publisher<nav_msgs::msg::Odometry>("/whill/odom", 100);
 
 	auto clear_odom_srv           = node->create_service<std_srvs::srv::Empty>("/whill/odom/clear", clearOdom);
@@ -161,12 +161,9 @@ int main(int argc, char **argv)
 
 	tf2_ros::TransformBroadcaster odom_broadcaster_(node);
 
-	double wheel_radius = 0.135;
-	node->get_parameter("wheel_radius", wheel_radius);
-	std::string serialport = "/dev/ttyUSB0";
-	node->get_parameter("serialport", serialport);
-	int send_interval = SEND_INTERVAL;
-	node->get_parameter("send_interval", send_interval);
+	double wheel_radius = node->declare_parameter<double>("wheel_radius", 0.135);
+	std::string serialport = node->declare_parameter<std::string>("serialport", "/dev/ttyUSB0");
+	int send_interval = node->declare_parameter<int>("send_interval", SEND_INTERVAL);
 	RCLCPP_INFO(node->get_logger(), "=========================");
 	RCLCPP_INFO(node->get_logger(), "WHILL CR Publisher:");
 	RCLCPP_INFO(node->get_logger(), "    serialport: %s", serialport.c_str());
@@ -192,6 +189,11 @@ int main(int argc, char **argv)
 	int i;
 
 	initializeComWHILL(&whill_fd,serialport);
+	if (whill_fd < 0) {
+		RCLCPP_ERROR(node->get_logger(), "Failed to open WHILL serial port: %s", serialport.c_str());
+		rclcpp::shutdown();
+		return -1;
+	}
 	if((epollfd = epoll_create1(0)) < 0)
 	{
 		RCLCPP_INFO(node->get_logger(), "can't creare epoll\n");
@@ -199,7 +201,12 @@ int main(int argc, char **argv)
 	}
 
 	// register Fd to epoll
-	registerFdToEpoll(&ev, epollfd, whill_fd);
+	if (registerFdToEpoll(&ev, epollfd, whill_fd) < 0) {
+		RCLCPP_ERROR(node->get_logger(), "Failed to register WHILL serial port with epoll");
+		closeComWHILL(whill_fd);
+		rclcpp::shutdown();
+		return -1;
+	}
 
 	// Send StartSendingData command: dataset 0 for all speed mode
 	for(int i = 0; i < 6; i ++)
@@ -437,4 +444,3 @@ int main(int argc, char **argv)
 	closeComWHILL(whill_fd);
 	return 0;
 }
-

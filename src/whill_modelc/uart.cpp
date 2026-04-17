@@ -38,6 +38,8 @@ SOFTWARE.
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <errno.h>
+#include <string.h>
 #include "./uart.h"
 
 //#include "ros/ros.h"
@@ -125,8 +127,9 @@ int initializeUART(int *fd,std::string port)
      /* fd :  シリアル通信ファイルディスクリプタ */
      struct termios newtio;    /* シリアル通信設定 */
          
-     if(!(*fd = open(port.c_str(), O_RDWR))){
-       fprintf(stderr, "Can't open UART device\n");
+     *fd = open(port.c_str(), O_RDWR | O_NOCTTY);
+     if(*fd < 0){
+       fprintf(stderr, "Can't open UART device %s: %s\n", port.c_str(), strerror(errno));
        return -1; /* デバイスをオープンする */
      }
      ioctl(*fd, TCGETS, &oldtio);       /* 現在のシリアルポートの設定を待避 */
