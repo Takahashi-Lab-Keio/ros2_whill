@@ -60,6 +60,9 @@ Thus, it is no longer the recommended style for ROS 2.
 #include <unistd.h>
 #include <math.h>
 #include <limits>
+#include <algorithm>
+#include <chrono>
+#include <cerrno>
 
 #define MAX_EVENTS (10)
 #define DATASET_NUM_ZERO (0)
@@ -69,6 +72,10 @@ Thus, it is no longer the recommended style for ROS 2.
 
 #define DATASET_LEN_OLD (30)
 #define DATASET_LEN_NEW (31)
+
+constexpr int EPOLL_TIMEOUT_MS = 250;
+constexpr int REPORTING_TIMEOUT_MS = 1000;
+constexpr int RECONNECT_RETRY_US = 500000;
 
 #define ACC_CONST (0.000122)
 #define GYR_CONST (0.004375)
@@ -81,13 +88,58 @@ Odometry odom;
 int registerFdToEpoll(struct epoll_event *ev, int epollfd, int fd)
 {
 	/* register socket to epoll */
-	ev->events = EPOLLIN;
+	ev->events = EPOLLIN | EPOLLERR | EPOLLHUP;
 	ev->data.fd = fd;
 	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, ev) == -1) {
 		RCLCPP_INFO(node->get_logger(), "fail epoll_ctl\n");
 		return -1;
 	}
 	return 1;
+}
+
+void closeReportingTransport(int *whill_fd, int *epollfd)
+{
+	if (*epollfd >= 0) {
+		close(*epollfd);
+		*epollfd = -1;
+	}
+	if (*whill_fd >= 0) {
+		closeComWHILL(*whill_fd);
+		*whill_fd = -1;
+	}
+}
+
+bool reopenReportingTransport(
+	int *whill_fd,
+	int *epollfd,
+	struct epoll_event *ev,
+	const std::string & serialport,
+	int send_interval)
+{
+	closeReportingTransport(whill_fd, epollfd);
+	if (initializeComWHILL(whill_fd, serialport) < 0 || *whill_fd < 0) {
+		return false;
+	}
+	*epollfd = epoll_create1(0);
+	if (*epollfd < 0 || registerFdToEpoll(ev, *epollfd, *whill_fd) < 0) {
+		closeReportingTransport(whill_fd, epollfd);
+		return false;
+	}
+
+	// A USB re-enumeration gives us a new tty. Restore dataset 1 reporting on
+	// that transport, but never issue a velocity command from this process.
+	if (sendStopSendingData(*whill_fd) < 0) {
+		closeReportingTransport(whill_fd, epollfd);
+		return false;
+	}
+	usleep(2000);
+	if (sendStartSendingData(
+			*whill_fd, send_interval, DATASET_NUM_ONE, SPEED_MODE) < 0)
+	{
+		closeReportingTransport(whill_fd, epollfd);
+		return false;
+	}
+	return true;
 }
 
 float calc_16bit_signed_data(char d1, char d2)
@@ -182,8 +234,8 @@ int main(int argc, char **argv)
 	// WHILL setup
 	struct epoll_event ev;
 	struct epoll_event events[MAX_EVENTS];
-	int epollfd, nfds;
-	int whill_fd; // file descriptor for UART to communicate with WHILL
+	int epollfd = -1, nfds;
+	int whill_fd = -1; // file descriptor for UART to communicate with WHILL
 	char recv_buf[128];
 	int len, idx;
 	int i;
@@ -245,6 +297,7 @@ int main(int argc, char **argv)
 	// loop
 	int msg_cnt = 0;
 	RCLCPP_INFO(node->get_logger(), "Start WHILL message reporting");
+	auto last_valid_report = std::chrono::steady_clock::now();
 	while(rclcpp::ok())
  	{
 		//RCLCPP_INFO(node->get_logger(), "WHILL message %d is published", msg_cnt ++);
@@ -257,19 +310,31 @@ int main(int argc, char **argv)
 
 		// WHILL data
 		// Process epoll
-		nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+		nfds = epoll_wait(epollfd, events, MAX_EVENTS, EPOLL_TIMEOUT_MS);
 		if (nfds == -1) {
-			RCLCPP_ERROR(node->get_logger(), "Error : epoll wait");
-			break;
+			if (errno == EINTR) {
+				continue;
+			}
+			RCLCPP_ERROR(
+				node->get_logger(), "WHILL epoll wait failed: %s", strerror(errno));
 		}
-		
-		for (i = 0; i < nfds; i++) {
+
+		bool valid_report_received = false;
+		bool transport_failed = nfds < 0;
+		for (i = 0; i < std::max(nfds, 0); i++) {
+			if ((events[i].events & (EPOLLERR | EPOLLHUP)) != 0) {
+				transport_failed = true;
+				continue;
+			}
 			// Receive Data From WHILL
-			if(events[i].data.fd == whill_fd) {
+			if(events[i].data.fd == whill_fd &&
+				(events[i].events & EPOLLIN) != 0)
+			{
 				len = recvDataWHILL(whill_fd, recv_buf);
 				RCLCPP_DEBUG(node->get_logger(), "recv_buf[0]: 0x%x, len: %d", recv_buf[0], len);
 				if(recv_buf[0] == DATASET_NUM_ONE && (len == DATASET_LEN_OLD || len == DATASET_LEN_NEW))
 				{
+					valid_report_received = true;
 					unsigned char checksum = 0x00;
 					for(int i = 0; i <= len - 1; i++){
 						checksum ^= static_cast<unsigned char>(recv_buf[i]);
@@ -430,6 +495,34 @@ int main(int argc, char **argv)
 				}
 			}
 		}
+		if (valid_report_received) {
+			last_valid_report = std::chrono::steady_clock::now();
+		}
+		const auto report_silence = std::chrono::duration_cast<
+			std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - last_valid_report).count();
+		if (transport_failed || report_silence >= REPORTING_TIMEOUT_MS) {
+			RCLCPP_ERROR(
+				node->get_logger(),
+				"WHILL reporting transport was lost for %ld ms; reconnecting %s",
+				static_cast<long>(report_silence), serialport.c_str());
+			while (rclcpp::ok() && !reopenReportingTransport(
+					&whill_fd, &epollfd, &ev, serialport, send_interval))
+			{
+				RCLCPP_ERROR_THROTTLE(
+					node->get_logger(), *node->get_clock(), 5000,
+					"Waiting for WHILL serial device %s", serialport.c_str());
+				rclcpp::spin_some(node);
+				usleep(RECONNECT_RETRY_US);
+			}
+			if (!rclcpp::ok()) {
+				break;
+			}
+			last_valid_report = std::chrono::steady_clock::now();
+			RCLCPP_INFO(
+				node->get_logger(), "WHILL reporting transport reconnected");
+			continue;
+		}
 
 		rclcpp::spin_some(node);
 		
@@ -438,9 +531,11 @@ int main(int argc, char **argv)
 
 	// send StopSendingData command
 	RCLCPP_INFO(node->get_logger(), "Request Stop Sending Data.");
-	sendStopSendingData(whill_fd);
-	usleep(1000);
+	if (whill_fd >= 0) {
+		sendStopSendingData(whill_fd);
+		usleep(1000);
+	}
 	RCLCPP_INFO(node->get_logger(), "Closing Serial Port.");
-	closeComWHILL(whill_fd);
+	closeReportingTransport(&whill_fd, &epollfd);
 	return 0;
 }

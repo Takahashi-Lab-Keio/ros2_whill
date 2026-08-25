@@ -76,7 +76,6 @@ int initializeComWHILL(int *fd,std::string port)
 void closeComWHILL(int fd)
 {
      closeUART(fd);
-     close(fd);
 }
 
 int sendWHILLCmd(int fd, char cmd_data[], int length)
@@ -311,5 +310,4 @@ int sendVelocity(int fd, uint8_t y1, uint8_t y0, uint8_t x1, uint8_t x0)
 
      return sendWHILLCmd(fd, cmd, num_cmd);
 }
-
 

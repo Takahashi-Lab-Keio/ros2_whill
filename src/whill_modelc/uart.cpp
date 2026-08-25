@@ -63,15 +63,14 @@ int sendCmdUART(int fd, char cmd[], int len)
 int recvDataUART(int fd, char recv_buf[])
 {
      int size;
-     char prtcl;
-     char len, remain_len;
+     int len, remain_len;
      char tmp_recv_buf[128];
-     int i, j,idx;
-     int retry = 3;
+     int i, idx;
      int check_sum = 0;
    
      //** Recv Protocol Sign **//
      size = read(fd, tmp_recv_buf, 1);
+     if(size != 1) return -1;
 
      if((tmp_recv_buf[0] & 0xff) != PROTOCOL_SIGN) return -1;
      //fprintf(stdout, "protocl sign = %d\n", tmp_recv_buf[0]);
@@ -79,9 +78,11 @@ int recvDataUART(int fd, char recv_buf[])
 
      //** Recv Data length **//
      size = read(fd, tmp_recv_buf, 1);
+     if(size != 1) return -1;
      //fprintf(stdout, "data length = %d\n", tmp_recv_buf[0]);
      check_sum ^= tmp_recv_buf[0];
-     len = tmp_recv_buf[0];
+     len = static_cast<unsigned char>(tmp_recv_buf[0]);
+     if(len <= 0 || len > static_cast<int>(sizeof(tmp_recv_buf))) return -1;
      remain_len =len;
      idx = 0;
 
@@ -89,9 +90,11 @@ int recvDataUART(int fd, char recv_buf[])
      while(remain_len){
 	  size = read(fd, tmp_recv_buf, remain_len);//recv data
 	  //fprintf(stdout, "remain_len = %d, size = %d\n", remain_len, size);
-	  if(size < 0)
+	  if(size <= 0)
 	  {
-	       fprintf(stderr, "fail to read\n");
+	       fprintf(stderr, "fail to read WHILL frame: %s\n",
+	         size == 0 ? "serial device closed" : strerror(errno));
+	       return -1;
 	  }
 	  for(i=0;i<size;i++)
 	  {

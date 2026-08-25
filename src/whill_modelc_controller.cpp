@@ -209,7 +209,15 @@ void whillSetCmdVelMsgCallback(const geometry_msgs::msg::Twist::SharedPtr cmd_ve
     uint8_t x1 = (uint8_t)((x >> 8) & 0xff);
     uint8_t x0 = (uint8_t)((x >> 0) & 0xff);
     
-    sendVelocity(whill_fd, y1, y0, x1, x0);
+    if (sendVelocity(whill_fd, y1, y0, x1, x0) < 0) {
+        RCLCPP_FATAL(
+            node->get_logger(),
+            "WHILL serial command write failed; stopping the motion controller");
+        // Do not leave a live ROS actuator subscriber around after the USB
+        // transport has failed. The experiment safety watcher treats this
+        // managed process exit as an immediate run failure.
+        rclcpp::shutdown();
+    }
 }
 
 
@@ -250,6 +258,15 @@ int main(int argc, char **argv)
     }
     rclcpp::spin(node);
 
+    // The controller process is the last-resort actuator boundary. Write a
+    // zero directly on every managed shutdown before releasing the UART, even
+    // when DDS or the external emergency-stop publisher is unavailable.
+    if (sendVelocity(whill_fd, 0, 0, 0, 0) < 0) {
+        RCLCPP_ERROR(
+            node->get_logger(),
+            "Failed to write the final zero velocity before closing WHILL UART");
+    }
+    usleep(20000);
     closeComWHILL(whill_fd);
     rclcpp::shutdown();
     node = nullptr;
